@@ -31,9 +31,11 @@ export async function updateSession(request: NextRequest) {
         data: { user },
     } = await supabase.auth.getUser()
 
-    // Protect all routes except auth-related pages
+    // Protect all routes except auth-related pages and the root page (which will conditionally render AuthPage)
+    const isRoot = request.nextUrl.pathname === '/'
     if (
         !user &&
+        !isRoot &&
         !request.nextUrl.pathname.startsWith('/login') &&
         !request.nextUrl.pathname.startsWith('/signup') &&
         !request.nextUrl.pathname.startsWith('/auth')
