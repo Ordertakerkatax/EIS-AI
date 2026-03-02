@@ -10,72 +10,106 @@ datasource db {
 }
 
 // ----------------------------------------------------------------------
+// Auth & Multi-Tenancy
+// ----------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  customers Customer[]
+  invoices  Invoice[]
+}
+
+model User {
+  id    String  @id @db.Uuid // Matches Supabase auth.users id
+  email String  @unique
+  name  String?
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ----------------------------------------------------------------------
 // Core Business Entities
 // ----------------------------------------------------------------------
 
 model Customer {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  registeredName   String    // Business Name or Individual Name
-  tin              String    // Tax Identification Number
-  branchCode       String    @default("000")
-  address          String?
-  city             String?
-  contactNumber    String?
-  email            String?
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
 
-  invoices         Invoice[]
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  registeredName String // Business Name or Individual Name
+  tin            String // Tax Identification Number
+  branchCode     String  @default("000")
+  address        String?
+  city           String?
+  contactNumber  String?
+  email          String?
+
+  invoices Invoice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Invoice {
-  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  invoiceNumber    String       @unique // Official Receipt or Sales Invoice Number
-  issueDate        DateTime     @default(now())
-  
-  customerId       String       @db.Uuid
-  customer         Customer     @relation(fields: [customerId], references: [id])
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
 
-  currency         String       @default("PHP")
-  totalGrossAmount Decimal      @db.Decimal(15, 4)
-  totalTaxAmount   Decimal      @db.Decimal(15, 4)
-  totalNetAmount   Decimal      @db.Decimal(15, 4)
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
-  status           InvoiceStatus @default(DRAFT)
-  
+  invoiceNumber String   @unique // Official Receipt or Sales Invoice Number
+  issueDate     DateTime @default(now())
+
+  customerId String   @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  currency         String  @default("PHP")
+  totalGrossAmount Decimal @db.Decimal(15, 4)
+  totalTaxAmount   Decimal @db.Decimal(15, 4)
+  totalNetAmount   Decimal @db.Decimal(15, 4)
+
+  status InvoiceStatus @default(DRAFT)
+
   lineItems        LineItem[]
   complianceRecord ComplianceArchive?
 
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum InvoiceStatus {
   DRAFT
-  ISSUED       // Finalized but not yet submitted to BIR
-  SUBMITTED    // Sent to BIR API
-  ACCEPTED     // Successfully accepted by BIR
-  REJECTED     // Rejected by BIR
+  ISSUED // Finalized but not yet submitted to BIR
+  SUBMITTED // Sent to BIR API
+  ACCEPTED // Successfully accepted by BIR
+  REJECTED // Rejected by BIR
 }
 
 model LineItem {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  
-  invoiceId        String    @db.Uuid
-  invoice          Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  
-  description      String
-  quantity         Decimal   @db.Decimal(15, 4)
-  unitPrice        Decimal   @db.Decimal(15, 4)
-  taxRate          Decimal   @db.Decimal(5, 4) // e.g., 0.12 for 12% VAT
-  taxAmount        Decimal   @db.Decimal(15, 4)
-  totalAmount      Decimal   @db.Decimal(15, 4) // UnitPrice * Quantity + TaxAmount
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  invoiceId String  @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Decimal @db.Decimal(15, 4)
+  unitPrice   Decimal @db.Decimal(15, 4)
+  taxRate     Decimal @db.Decimal(5, 4) // e.g., 0.12 for 12% VAT
+  taxAmount   Decimal @db.Decimal(15, 4)
+  totalAmount Decimal @db.Decimal(15, 4) // UnitPrice * Quantity + TaxAmount
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
-
 
 // ----------------------------------------------------------------------
 // 10-Year Data Retention Compliance Records
@@ -84,22 +118,22 @@ model LineItem {
 // IMPORTANT: This table is strictly APPEND-ONLY. 
 // Supabase RLS and DB Triggers will actively block ALL UPDATE and DELETE operations.
 model ComplianceArchive {
-  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
   // Link to the internal representation
-  invoiceId            String   @unique @db.Uuid
-  invoice              Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict) // Prevent cascade delete
+  invoiceId String  @unique @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict) // Prevent cascade delete
 
   // Canonical JSON exact map sent to BIR
   canonicalJsonPayload Json
-  
+
   // Cryptographic Signature
-  jwsSignature         String   // The RS256 signature generated over the canonical payload
-  
+  jwsSignature String // The RS256 signature generated over the canonical payload
+
   // BIR Response Tracking
-  birTrackingId        String?  // ID returned by BIR upon successful submission
-  birResponsePayload   Json?    // Optional storage of the exact BIR API sync/async response
-  
+  birTrackingId      String? // ID returned by BIR upon successful submission
+  birResponsePayload Json? // Optional storage of the exact BIR API sync/async response
+
   // Strictly enforced creation timestamp for the 10-year rule
-  archivedAt           DateTime @default(now())
+  archivedAt DateTime @default(now())
 }

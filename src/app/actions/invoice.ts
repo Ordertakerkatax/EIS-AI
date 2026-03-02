@@ -3,9 +3,18 @@
 import { revalidatePath } from 'next/cache';
 import { BirCanonicalPayloadSchema } from '@/lib/bir-schema/validation';
 import { submitToBirApi } from '@/lib/gateway/client';
+import { createClient } from '@/lib/supabase/server';
+import PrismaClient from '@prisma/client';
 
 export async function createInvoiceAction(formData: FormData) {
     try {
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+            throw new Error('Unauthorized');
+        }
+
         const rawData = {
             customerTin: formData.get('customerTin'),
             description: formData.get('description'),
